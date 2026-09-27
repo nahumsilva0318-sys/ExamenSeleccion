@@ -1,0 +1,155 @@
+﻿@page "/"
+@using apiexamen
+@inject clsExamen ExamenApi
+@inject NotificationService NotificationService
+
+<PageTitle>Mantenimiento</PageTitle>
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1">Mantenimiento de catálogo</RadzenText>
+ 
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-m-0">Guardar usando:</RadzenText>
+            <RadzenRadioButtonList @bind-Value="modo" TValue="TipoConexion">
+                <Items>
+                    <RadzenRadioButtonListItem TValue="TipoConexion" Text="Procedimientos almacenados "
+                                               Value="TipoConexion.ProcedimientosAlmacenados" />
+                    <RadzenRadioButtonListItem TValue="TipoConexion" Text="Web Service "
+                                               Value="TipoConexion.WebService" />
+                </Items>
+            </RadzenRadioButtonList>
+        </RadzenStack>
+    </RadzenCard>
+    @* Captura de datos*@
+    <RadzenCard>
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Size="12" SizeMD="2">
+                <RadzenFormField Text="Id" Style="width: 100%;">
+                    <RadzenNumeric TValue="int?" @bind-Value="id" ShowUpDown="false" Style="width: 100%;" />
+                </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="4">
+                <RadzenFormField Text="Nombre" Style="width: 100%;">
+                    <RadzenTextBox @bind-Value="nombre" MaxLength="255" Style="width: 100%;" />
+                </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="12" SizeMD="6">
+                <RadzenFormField Text="Descripción" Style="width: 100%;">
+                    <RadzenTextBox @bind-Value="descripcion" MaxLength="255" Style="width: 100%;" />
+                </RadzenFormField>
+            </RadzenColumn>
+        </RadzenRow>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap" class="rz-mt-4">
+            <RadzenButton Text="Agregar" Icon="add" ButtonStyle="ButtonStyle.Success" Click="@Agregar" Disabled="@ocupado" />
+            <RadzenButton Text="Actualizar" Icon="edit" ButtonStyle="ButtonStyle.Primary" Click="@Actualizar" Disabled="@ocupado" />
+            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger" Click="@Eliminar" Disabled="@ocupado" />
+            <RadzenButton Text="Consultar" Icon="search" ButtonStyle="ButtonStyle.Info" Click="@Consultar" Disabled="@ocupado" />
+            <RadzenButton Text="Limpiar" Icon="clear" ButtonStyle="ButtonStyle.Light" Click="@Limpiar" Disabled="@ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+    @*  Mensaje de la última operación  *@
+    @if (!string.IsNullOrEmpty(mensaje))
+    {
+        <RadzenAlert AlertStyle="@(mensajeExito? AlertStyle.Success: AlertStyle.Danger)"
+                     Variant="Variant.Flat" Shade="Shade.Lighter" AllowClose="false">
+            @mensaje
+        </RadzenAlert>
+    }
+    @* Resultado de la consulta en el data grid*@
+    <RadzenDataGrid TItem="Examen" Data="@examenes" AllowPaging="true" PageSize="10" AllowSorting="true"
+                    SelectionMode="DataGridSelectionMode.Single" RowSelect="@SeleccionarFila"
+                    EmptyText="Sin registros ">
+        <Columns>
+            <RadzenDataGridColumn TItem="Examen" Property="@nameof(Examen.Id)" Title="Id" Width="100px" />
+            <RadzenDataGridColumn TItem="Examen" Property="@nameof(Examen.Nombre)" Title="Nombre" />
+            <RadzenDataGridColumn TItem="Examen" Property="@nameof(Examen.Descripcion)" Title="Descripción" />
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+ private TipoConexion modo = TipoConexion.ProcedimientosAlmacenados;
+ private int? id;
+ private string? nombre;
+ private string? descripcion;
+ private List<Examen> examenes = new();
+ private string? mensaje;
+ private bool mensajeExito;
+ private bool ocupado;
+ private async Task Agregar() =>
+    await Ejecutar(() => ExamenApi.AgregarExamen(id ?? 0, nombre, descripcion), refrescar: true);
+    private async Task Actualizar() =>
+    await Ejecutar(() => ExamenApi.ActualizarExamen(id ?? 0, nombre, descripcion), refrescar: true);
+    private async Task Eliminar() =>
+    await Ejecutar(() => ExamenApi.EliminarExamen(id ?? 0), refrescar: true);
+    private async Task Consultar()
+    {
+        ocupado = true;
+        try
+        {
+            ExamenApi.Modo = modo;
+            var r = await ExamenApi.ConsultarExamen(id, nombre, descripcion);
+            if (r.Exito) examenes = r.Datos;
+            MostrarMensaje(r);
+        }
+        catch (Exception ex)
+        {
+            MostrarMensaje(Resultado.Error("Error inesperado: " + ex.Message));
+        }
+        finally
+        {
+            ocupado = false;
+        }
+    }
+    // Llama a la DLL muestra el resultado 
+    private async Task Ejecutar(Func<Task<Resultado>> operacion, bool refrescar)
+    {
+        ocupado = true;
+        try
+        {
+            ExamenApi.Modo = modo;
+            var r = await operacion();
+            MostrarMensaje(r);
+            if (r.Exito && refrescar)
+            {
+                var consulta = await ExamenApi.ConsultarExamen(null, null, null);
+                if (consulta.Exito) examenes = consulta.Datos;
+            }
+        }
+        catch (Exception ex)
+        {
+            MostrarMensaje(Resultado.Error("Error inesperado: " + ex.Message));
+        }
+        finally
+        {
+            ocupado = false;
+        }
+    }
+    private void MostrarMensaje(Resultado r)
+    {
+        mensaje = r.Descripcion;
+        mensajeExito = r.Exito;
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = r.Exito ? NotificationSeverity.Success : NotificationSeverity.Error,
+            Summary = r.Exito ? "Operación exitosa" : "Error",
+            Detail = r.Descripcion,
+            Duration = 5000
+        });
+    }
+    private void Limpiar()
+    {
+        id = null;
+        nombre = null;
+        descripcion = null;
+        mensaje = null;
+    }
+    // carga de datos en los texbox con click
+    private void SeleccionarFila(Examen e)
+    {
+        id = e.Id;
+        nombre = e.Nombre;
+        descripcion = e.Descripcion;
+    }
+  
+}
